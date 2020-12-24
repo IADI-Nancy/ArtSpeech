@@ -1,4 +1,17 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Karyna Isaieva, IADI, Université de Lorraine, France, 2020
+% karyna.isaieva@univ-lorraine.fr
+% Usage:
+% database_make_video(dataset_dir, i_subject, series)
+% dataset_dir - path to the root folder of the ArtSpeech dataset
+% i_subject - subject index (1-10)
+% series - series number (1-16)
+% The output video will be saved in
+% dataset_dir/PXX/OTHER/SYY/VIDEO_PXX_SYY.avi, where XX=i_subject, YY=series
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 function database_make_video(dataset_dir, i_subject, series)
+    % Read the files
     [images, DicomInfos] = load_dicom_files([dataset_dir, '/P', num2str(i_subject),...
                 '/DCM_2D/S', num2str(series)]);
     [sound_recording, fs] = audioread([dataset_dir, '/P', num2str(i_subject), '/OTHER/S', num2str(series),...
@@ -7,27 +20,39 @@ function database_make_video(dataset_dir, i_subject, series)
                 '/TEXT_ALIGNMENT_P', num2str(i_subject), '_S', num2str(series), '.trs']);
     tg_sound = tgRead([dataset_dir, '/P', num2str(i_subject), '/OTHER/S', num2str(series),...
                 '/TEXT_ALIGNMENT_P', num2str(i_subject), '_S', num2str(series), '.textgrid']);
+            
+    % Calculate the constants
     [Nx, Ny, n_frames] = size(images);
     step = length(sound_recording) / n_frames;
     FrameRate =  fs / step;
-
+    
+    % Determine global min and max of the intensity to have stable contrast
     Min_images = min(images(:));
     Max_images = max(images(:));
+    
+    % Initialize the time scales for the images and for the sound
     time_x = 0.5/FrameRate:1/FrameRate:(n_frames - 0.5)/FrameRate;
     time_x_sound =  1/fs:1/fs:length(sound_recording)/fs;
+    
+    % Open the video file for writing and show the figure
     videoFWriter = vision.VideoFileWriter([dataset_dir, '/P', num2str(i_subject), '/OTHER/S', num2str(series),...
         '/VIDEO_P', num2str(i_subject), '_S', num2str(series), '.avi'], 'AudioInputPort', true,...
         'FrameRate',  fs / step, 'FileFormat', 'AVI');
     h = figure('Position', [200, 300, 600, 600]);
     for index = 1:n_frames
+        % Begin of the sound segment corresponding to the frame
         idx_begin = round(step * (index - 1) + 1);
+        % Time to compare with test alignment files
         time_astali = time_x(index);
      
+        % Plot the sound
         sp1 = subplot(2, 1, 2);
         set(sp1, 'Units', 'normalized');
         set(sp1, 'Position', [0, 0.1, 1, 0.2]);
         plot(time_x_sound, sound_recording);
         line([time_x(index), time_x(index)], [- 1, 1], 'Color', 'r');
+        
+        % Extract the sentence from the .trs file and write it
         idx = get_sentence_idx(trs, time_astali);
         if idx ~= -1
             title(trs{idx}{3}, 'FontSize', 8);
@@ -35,19 +60,23 @@ function database_make_video(dataset_dir, i_subject, series)
         xlim([time_x(index) - 1, time_x(index) + 1]);
         ylim([-1, 1]);
         
+        % Show the MR image
         sp2 = subplot(2, 1, 1);
         set(sp2, 'Units', 'normalized');
         set(sp2, 'Position', [0, 0.36, 1, 0.6]);
 
-        imshow(images(:,:,index),[Min_images,  Max_images ]);
-
+        imshow(images(:,:,index),[Min_images,  Max_images ]);        
         text(2,double(Ny)*0.03,sprintf('S%d',series),'Color','yellow');
         text(2,double(Ny)*0.97,sprintf('I%d',index),'Color','yellow');
-        word = get_word(tg_sound, time_astali);%
+        
+        % Get the word from the .textgrid file
+        word = get_word(tg_sound, time_astali);
         text(double(Nx)*0.38,double(Ny)*0.97, sprintf(word), 'Color', 'yellow');
-        phoneme = get_phoneme(tg_sound, time_astali);%
+        % Get the phoneme from the .textgrid file
+        phoneme = get_phoneme(tg_sound, time_astali);
         text(double(Nx)*0.45,double(Ny)*0.03, sprintf(phoneme),'Color','yellow');
         
+        % Save the frame together with the sound segment
         frame = getframe(h);
         im = frame2im(frame);
         videoFWriter(im, sound_recording(idx_begin : idx_begin + round(step - 1)));
